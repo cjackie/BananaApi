@@ -10,6 +10,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
+using UnityEngine;
 
 namespace BananaClient
 {
@@ -29,6 +30,7 @@ namespace BananaClient
 
         // True for debugging only.
         private bool SkipSsl = false;
+
 
         public TcpAdapter(string host, ushort port)
         {
@@ -52,7 +54,8 @@ namespace BananaClient
 
         private void Sending()
         {
-            try {
+            try 
+            {
                 if (networkStream == null) 
                     networkStream = Connect(host, port, "commonName");
 
@@ -78,22 +81,27 @@ namespace BananaClient
                         offset = writePrimitiveBytes(buffer, offset, connectServerRequest.authType); 
 
                         offset = writeArrayBytes(buffer, offset, connectServerRequest.username);
-                        offset = writeBytes(buffer, offset, Zeros(256 - connectServerRequest.username.Length));
+                        offset = writeBytes(buffer, offset, Zeros(256 - connectServerRequest.username.Length * 2));
 
                         offset = writeArrayBytes(buffer, offset, connectServerRequest.password);
-                        offset = writeBytes(buffer, offset, Zeros(256 - connectServerRequest.password.Length));
+                        offset = writeBytes(buffer, offset, Zeros(256 - connectServerRequest.password.Length * 2));
+
                     } else {
                         throw new Exception("Not support request: " + request.GetType());
                     }
-
-                    // Write the buffer to the stream.
+                    
                     networkStream.Write(buffer, 0, offset);
                     ZeroOut(buffer, offset);
                 }      
-            } catch (Exception e) {
+            } 
+            catch (Exception e) 
+            {
                 error = e.ToString();
-            } finally {
-                if (networkStream != null) {
+            } 
+            finally 
+            {
+                if (networkStream != null)
+                {
                     networkStream.Close();
                 }
             }
@@ -146,7 +154,7 @@ namespace BananaClient
             return writeBytes(dest, offset, bytes);
         }
 
-        private int writePrimitiveBytes(byte[] dest, int offset, ulong data)
+        private int writePrimitiveBytes(byte[] dest, int offset, uint data)
         {
             byte[] bytes = BitConverter.GetBytes(data);
             if (BitConverter.IsLittleEndian)
@@ -155,25 +163,43 @@ namespace BananaClient
         }
 
         private void Receiving() {
-            try {
+            try 
+            {
                 // Waiting for sendingThread to establish the connnection.
                 while (running && error == "" && networkStream == null)
                     Thread.Sleep(0);
 
+                ushort eventType = 0;
                 while (running && error == "") {
-                    ushort eventType = ReadUInt16(networkStream);
-                   
-                    if (eventType == NetworkMessage.EventType_ConnectServer) {
+                    try
+                    {
+                        eventType = ReadUInt16(networkStream);
+                    }
+                    catch (Exception)
+                    {
+                        Thread.Sleep(100);
+                        continue;
+                    }
+                    
+                    if (eventType == NetworkMessage.EventType_ConnectServer) 
+                    {
                         ConnectServerResponse response;
                         response.eventType = eventType;
                         response.sessionId = ReadBytes(networkStream, 20);
                         response.userId = ReadUInt64(networkStream);
                         response.errorCode = ReadByte(networkStream);
+                        Byte[] buf = new byte[520-31];
+                        networkStream.Read(buf, 0, buf.Length); // dump redundant bytes
                         receivingQueue.Enqueue(response);
-                    } else {
-                        throw new Exception("Unknown error: " + this.error);
+                    } 
+                    else 
+                    {
+                        //throw new Exception("Unknown error: " + this.error);
+                        Thread.Sleep(1000);
+                        continue;
                     }
                 }
+
             } catch (Exception e) {
                 this.error = e.ToString();
                 throw e;
@@ -185,7 +211,9 @@ namespace BananaClient
             for (int i = 0; i < typeSize; i++) {
                 int b = stream.ReadByte();
                 if (b == -1)
+                {
                     throw new Exception("byte is -1");
+                }
                 data[i] = (byte) b;
             }
             // The network stream is agreed (assumed) on Big-Endian. So we
