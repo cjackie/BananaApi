@@ -22,31 +22,40 @@ namespace BananaClient
 
         private string error = "";
 
-        private ConcurrentQueue<object> sendingQueue = new ConcurrentQueue<object>();
+        private ConcurrentQueue<NetworkMessage> sendingQueue =
+            new ConcurrentQueue<NetworkMessage>();
         private Thread sendingThread;
-        private ConcurrentQueue<object> receivingQueue = new ConcurrentQueue<object>();
+        private ConcurrentQueue<NetworkMessage> receivingQueue =
+            new ConcurrentQueue<NetworkMessage>();
         private Thread receivingThread;
 
         // True for debugging only.
         private bool SkipSsl = false;
+        private List<IMessageBytesFiller> messageBytesFillers;
 
         public TcpAdapter(string host, ushort port)
         {
             this.host = host;
             this.port = port;
-            sendingQueue = new ConcurrentQueue<object>();
-            receivingQueue = new ConcurrentQueue<object>();
+            sendingQueue = new ConcurrentQueue<NetworkMessage>();
+            receivingQueue = new ConcurrentQueue<NetworkMessage>();
             sendingThread = new Thread(new ThreadStart(this.Sending));
             receivingThread = new Thread(new ThreadStart(this.Receiving));
+            messageBytesFillers = new List<IMessageBytesFiller>() {
+                new ConnectServerResponseBytesFiller(),
+                new SampleRoomsResponseBytesFiller()
+            };
         }
 
+        
         // For Unittest and debugging.
-        public TcpAdapter(Stream networkStream) {
+        public TcpAdapter(Stream networkStream, IMessageBytesFiller messageByteFiller) {
             this.networkStream = networkStream;
-            sendingQueue = new ConcurrentQueue<object>();
-            receivingQueue = new ConcurrentQueue<object>();
+            sendingQueue = new ConcurrentQueue<NetworkMessage>();
+            receivingQueue = new ConcurrentQueue<NetworkMessage>();
             sendingThread = new Thread(new ThreadStart(this.Sending));
             receivingThread = new Thread(new ThreadStart(this.Receiving));
+            messageBytesFillers = new List<IMessageBytesFiller>() { messageByteFiller };
             this.SkipSsl = true;
         }
 
@@ -60,7 +69,7 @@ namespace BananaClient
                 while (running && error == "")
                 {
                     // Sending messages stored in the sending queue.
-                    object request = null;
+                    NetworkMessage request = null;
                     if (sendingQueue.Count > 0)
                         sendingQueue.TryDequeue(out request);
 
@@ -68,27 +77,9 @@ namespace BananaClient
                         Thread.Sleep(0);
                         continue;
                     }
-
-                    int offset = 0;
-                    if (request.GetType() == typeof(ConnectServerRequest))
-                    {
-                        ConnectServerRequest connectServerRequest = (ConnectServerRequest) request;
-                        offset = writePrimitiveBytes(buffer, offset, connectServerRequest.eventType);
-                        offset = writePrimitiveBytes(buffer, offset, connectServerRequest.magicNumber);
-                        offset = writePrimitiveBytes(buffer, offset, connectServerRequest.authType); 
-
-                        offset = writeArrayBytes(buffer, offset, connectServerRequest.username);
-                        offset = writeBytes(buffer, offset, Zeros(256 - connectServerRequest.username.Length));
-
-                        offset = writeArrayBytes(buffer, offset, connectServerRequest.password);
-                        offset = writeBytes(buffer, offset, Zeros(256 - connectServerRequest.password.Length));
-                    } else {
-                        throw new Exception("Not support request: " + request.GetType());
-                    }
-
-                    // Write the buffer to the stream.
-                    networkStream.Write(buffer, 0, offset);
-                    ZeroOut(buffer, offset);
+                    
+                    byte[] data = SerializationUtils.SerializeRequest(request);                    
+                    networkStream.Write(data, 0, data.Length);
                 }      
             } catch (Exception e) {
                 error = e.ToString();
@@ -99,79 +90,44 @@ namespace BananaClient
             }
         }
 
-        private byte[] Zeros(int n) {
-            if (n < 0) {
-                throw new Exception("Negative byte array");
-            }
-            byte[] zeros = new byte[n];
-            return zeros;
-        }
-
-        private void ZeroOut(byte[] buffer, int len) {
-            for (int i = 0; i < len; i++)
-                buffer[i] = 0x00;
-        }
-
-        private int writeBytes(byte[] dest, int offset, byte[] data)
-        {
-            if (offset + data.Length >= dest.Length) {
-                throw new Exception("data too big for dest.");
-            }
-
-            for (int i = 0; i < data.Length; i++) {
-                dest[offset + i] = data[i];
-            }
-            return offset + data.Length;
-        }
-
-        private int writeArrayBytes(byte[] dest, int offset, char[] data) {
-            for (int i = 0; i < data.Length; i++) {
-                offset = writePrimitiveBytes(dest, offset, data[i]);
-            }
-            return offset;
-        }
-
-        private int writePrimitiveBytes(byte[] dest, int offset, char data) {
-            byte[] bytes = BitConverter.GetBytes(data);
-            if (BitConverter.IsLittleEndian)
-                Array.Reverse(bytes);
-            return writeBytes(dest, offset, bytes);
-        }
-
-        private int writePrimitiveBytes(byte[] dest, int offset, ushort data)
-        {
-            byte[] bytes = BitConverter.GetBytes(data);
-            if (BitConverter.IsLittleEndian)
-                Array.Reverse(bytes);
-            return writeBytes(dest, offset, bytes);
-        }
-
-        private int writePrimitiveBytes(byte[] dest, int offset, ulong data)
-        {
-            byte[] bytes = BitConverter.GetBytes(data);
-            if (BitConverter.IsLittleEndian)
-                Array.Reverse(bytes);
-            return writeBytes(dest, offset, bytes);
-        }
-
         private void Receiving() {
             try {
                 // Waiting for sendingThread to establish the connnection.
                 while (running && error == "" && networkStream == null)
                     Thread.Sleep(0);
 
+                IMessageBytesFiller filler = null;
                 while (running && error == "") {
-                    ushort eventType = ReadUInt16(networkStream);
-                   
-                    if (eventType == NetworkMessage.EventType_ConnectServer) {
-                        ConnectServerResponse response;
-                        response.eventType = eventType;
-                        response.sessionId = ReadBytes(networkStream, 20);
-                        response.userId = ReadUInt64(networkStream);
-                        response.errorCode = ReadByte(networkStream);
-                        receivingQueue.Enqueue(response);
-                    } else {
-                        throw new Exception("Unknown error: " + this.error);
+                    if (filler == null)
+                    {
+                        ushort eventType = BytesUtils.ReadUInt16(networkStream);
+                        // Find filler.
+                        foreach (var eachFiller in messageBytesFillers)
+                        {
+                            if (eachFiller.EventType() == eventType)
+                            {
+                                filler = eachFiller;
+                            }
+                        }
+                        if (filler == null)
+                        {
+                            throw new Exception("Could not find a filler for " + eventType.ToString());
+                        }
+
+                        // Add the event type into the filler.
+                        var raw = BitConverter.GetBytes(eventType);
+                        filler.Fill(raw[0]);
+                        filler.Fill(raw[1]);
+                    } else
+                    {
+                        byte b = BytesUtils.ReadByte(networkStream);
+                        byte[] buffer = filler.Fill(b);
+                        if (buffer != null)
+                        {
+                            receivingQueue.Enqueue(SerializationUtils.DeserializeResponse(buffer));
+                            // A new filler will be picked for the next message.
+                            filler = null; 
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -180,44 +136,7 @@ namespace BananaClient
             }
         }
 
-        public byte[] ReadBytes(Stream stream, int typeSize) {
-            byte[] data = new byte[typeSize];
-            for (int i = 0; i < typeSize; i++) {
-                int b = stream.ReadByte();
-                if (b == -1)
-                    throw new Exception("byte is -1");
-                data[i] = (byte) b;
-            }
-            // The network stream is agreed (assumed) on Big-Endian. So we
-            // reverse data if the system is Little-Endian. 
-            if (BitConverter.IsLittleEndian)
-                Array.Reverse(data);
-            return data;
-        }
-
-        public ushort ReadUInt16(Stream stream)
-        {
-            return BitConverter.ToUInt16(ReadBytes(stream, 2), 0);
-        }
-
-        public byte ReadByte(Stream stream) {
-            int b = stream.ReadByte();
-            if (b == -1)
-                throw new Exception("byte is -1");
-            return (byte)b;
-        }
-
-        public ulong ReadUInt64(Stream stream)
-        {
-            return BitConverter.ToUInt64(ReadBytes(stream, 8), 0);
-        }
-
-        public short ReadInt16(Stream stream)
-        {
-            return BitConverter.ToInt16(ReadBytes(stream, 2), 0);
-        }
-
-        public void Send(object request) {
+        public void Send(NetworkMessage request) {
             if (sendingQueue.Count > 100)
             {
                 throw new IndexOutOfRangeException("Too many request queued...");
@@ -230,7 +149,7 @@ namespace BananaClient
             sendingQueue.Enqueue(request);
         }
 
-        public object Receive() {
+        public NetworkMessage Receive() {
             Console.WriteLine("Receive");
             if (receivingQueue.Count > 100)
             {
@@ -240,7 +159,7 @@ namespace BananaClient
                 throw new Exception("Underlying network error: " + error);
             }
 
-            object response;
+            NetworkMessage response;
             if (receivingQueue.TryDequeue(out response)) {
                 return response;
             } else {
