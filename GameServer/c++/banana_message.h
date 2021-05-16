@@ -1,0 +1,4 @@
+#ifndef BANANA_MESSAGE_H
+#define BANANA_MESSAGE_H
+
+#endif // BANANA_MESSAGE_H
