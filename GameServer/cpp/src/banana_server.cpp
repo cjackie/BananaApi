@@ -1,5 +1,11 @@
 #include <iostream>
 #include <cstdint>
+#include <thread>
+#include <csignal>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <stdio.h>
 
 #include <banana_message.h>
 #include <serialize.h>
@@ -24,8 +30,60 @@ public:
     char username_[256];
 };
 
+void SignalCallbackHandler(int signum)
+{
+    std::cout << "Caught signal " << signum << std::endl;
+    // Terminate program
+    exit(signum);
+}
+
+void HandleConnection(int client_sfd) {
+
+}
+
 int main()
 {
+    signal(SIGINT, &SignalCallbackHandler);
+    // Create a TCP socket.
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sfd == -1) {
+        std::cout << "Failed to create a socket." << std::endl;
+        return -1;
+    }
+
+    struct sockaddr_in server;
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = INADDR_ANY;
+    server.sin_port = htons(8080);
+
+    if (bind(sfd, (struct sockaddr*) &server, (socklen_t) sizeof(server)) == -1) {
+        std::cout << "Failed to bind socket." << std::endl;
+        return -1;
+    }
+
+    // backlog is maximum number of pending connections.
+    if (listen(sfd, /*backlog=*/100) == -1) {
+        std::cout << "listen fails." << std::endl;
+        return -1;
+    }
+
+
+    std::vector<std::thread> connectionHandlers;
+    // Accepting connections
+    while (true)
+    {
+        int socket_len;
+        struct sockaddr_in client;
+        int client_sfd = accept(sfd, (sockaddr *)&client, (socklen_t *)&socket_len);
+        if (client_sfd == -1) {
+            std::cerr << "Failed to accept a client." <<  std::endl;            
+            continue;
+        }
+
+        std::thread handler(HandleConnection, client_sfd);
+        connectionHandlers.emplace_back(std::move(handler));
+    }
+
     CDataStream c;
     ConnectServerRequest request;
     request.event_type_ = 0x1434;

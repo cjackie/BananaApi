@@ -32,8 +32,6 @@ typedef unsigned long long uint64;
 class CDataStream;
 class CAutoFile;
 
-using namespace std;
-
 static const int N_VERSION = 106;
 
 /////////////////////////////////////////////////////////////////
@@ -311,12 +309,12 @@ template <std::size_t LEN>
 class CFixedFieldString
 {
 protected:
-    const string *pcstr;
-    string *pstr;
+    const std::string *pcstr;
+    std::string *pstr;
 
 public:
-    explicit CFixedFieldString(const string &str) : pcstr(&str), pstr(NULL) {}
-    explicit CFixedFieldString(string &str) : pcstr(&str), pstr(&str) {}
+    explicit CFixedFieldString(const std::string &str) : pcstr(&str), pstr(NULL) {}
+    explicit CFixedFieldString(std::string &str) : pcstr(&str), pstr(&str) {}
 
     unsigned int GetSerializeSize(int, int = 0) const
     {
@@ -349,11 +347,11 @@ public:
 
 // string
 template <typename C>
-unsigned int GetSerializeSize(const basic_string<C> &str, int, int = 0);
+unsigned int GetSerializeSize(const std::basic_string<C> &str, int, int = 0);
 template <typename Stream, typename C>
-void Serialize(Stream &os, const basic_string<C> &str, int, int = 0);
+void Serialize(Stream &os, const std::basic_string<C> &str, int, int = 0);
 template <typename Stream, typename C>
-void Unserialize(Stream &is, basic_string<C> &str, int, int = 0);
+void Unserialize(Stream &is, std::basic_string<C> &str, int, int = 0);
 
 // vector
 template <typename T, typename A>
@@ -393,9 +391,9 @@ void Unserialize(Stream &is, std::map<K, T, Pred, A> &m, int nType, int nVersion
 
 // set
 template <typename K, typename Pred, typename A>
-unsigned int GetSerializeSize(const set<K, Pred, A> &m, int nType, int nVersion = N_VERSION);
+unsigned int GetSerializeSize(const std::set<K, Pred, A> &m, int nType, int nVersion = N_VERSION);
 template <typename Stream, typename K, typename Pred, typename A>
-void Serialize(Stream &os, const set<K, Pred, A> &m, int nType, int nVersion = N_VERSION);
+void Serialize(Stream &os, const std::set<K, Pred, A> &m, int nType, int nVersion = N_VERSION);
 template <typename Stream, typename K, typename Pred, typename A>
 void Unserialize(Stream &is, std::set<K, Pred, A> &m, int nType, int nVersion = N_VERSION);
 
@@ -427,13 +425,13 @@ inline void Unserialize(Stream &is, T &a, long nType, int nVersion = N_VERSION)
 // string
 //
 template <typename C>
-unsigned int GetSerializeSize(const basic_string<C> &str, int, int)
+unsigned int GetSerializeSize(const std::basic_string<C> &str, int, int)
 {
     return GetSizeOfCompactSize(str.size()) + str.size() * sizeof(str[0]);
 }
 
 template <typename Stream, typename C>
-void Serialize(Stream &os, const basic_string<C> &str, int, int)
+void Serialize(Stream &os, const std::basic_string<C> &str, int, int)
 {
     WriteCompactSize(os, str.size());
     if (!str.empty())
@@ -441,7 +439,7 @@ void Serialize(Stream &os, const basic_string<C> &str, int, int)
 }
 
 template <typename Stream, typename C>
-void Unserialize(Stream &is, basic_string<C> &str, int, int)
+void Unserialize(Stream &is, std::basic_string<C> &str, int, int)
 {
     unsigned int nSize = ReadCompactSize(is);
     str.resize(nSize);
@@ -508,7 +506,7 @@ void Unserialize_impl(Stream &is, std::vector<T, A> &v, int nType, int nVersion,
     unsigned int i = 0;
     while (i < nSize)
     {
-        unsigned int blk = min(nSize - i, (unsigned int)(1 + 4999999 / sizeof(T)));
+        unsigned int blk = std::min(nSize - i, (unsigned int)(1 + 4999999 / sizeof(T)));
         v.resize(i + blk);
         is.read((char *)&v[i], blk * sizeof(T));
         i += blk;
@@ -595,7 +593,7 @@ void Unserialize(Stream &is, std::map<K, T, Pred, A> &m, int nType, int nVersion
     typename std::map<K, T, Pred, A>::iterator mi = m.begin();
     for (unsigned int i = 0; i < nSize; i++)
     {
-        pair<K, T> item;
+        std::pair<K, T> item;
         Unserialize(is, item, nType, nVersion);
         mi = m.insert(mi, item);
     }
@@ -702,7 +700,7 @@ struct secure_allocator : public std::allocator<T>
     {
         if (p != NULL)
             memset(p, 0, sizeof(T) * n);
-        allocator<T>::deallocate(p, n);
+        std::allocator<T>::deallocate(p, n);
     }
 };
 
@@ -714,7 +712,7 @@ struct secure_allocator : public std::allocator<T>
 class CDataStream
 {
 protected:
-    typedef vector<char, secure_allocator<char> > vector_type;
+    typedef std::vector<char, secure_allocator<char> > vector_type;
     vector_type vch;
     unsigned int nReadPos;
     short state;
@@ -762,16 +760,16 @@ public:
         Init(nTypeIn, nVersionIn);
     }
 
-    CDataStream(const vector<char> &vchIn, int nTypeIn = 0, int nVersionIn = N_VERSION)
+    CDataStream(const std::vector<char> &vchIn, int nTypeIn = 0, int nVersionIn = N_VERSION)
     {
-        for (vector<char>::const_iterator itr = vchIn.begin(); itr != vchIn.end(); itr++)
+        for (std::vector<char>::const_iterator itr = vchIn.begin(); itr != vchIn.end(); itr++)
             vch.push_back(*itr);
         Init(nTypeIn, nVersionIn);
     }
 
-    CDataStream(const vector<unsigned char> &vchIn, int nTypeIn = 0, int nVersionIn = N_VERSION)
+    CDataStream(const std::vector<unsigned char> &vchIn, int nTypeIn = 0, int nVersionIn = N_VERSION)
     {
-        for (vector<unsigned char>::const_iterator itr = vchIn.begin(); itr != vchIn.end(); itr++)
+        for (std::vector<unsigned char>::const_iterator itr = vchIn.begin(); itr != vchIn.end(); itr++)
             vch.push_back(*itr);
         Init(nTypeIn, nVersionIn);
     }
@@ -782,7 +780,7 @@ public:
         nType = nTypeIn;
         nVersion = nVersionIn;
         state = 0;
-        exceptmask = ios::badbit | ios::failbit;
+        exceptmask = std::ios::badbit | std::ios::failbit;
     }
 
     CDataStream &operator+=(const CDataStream &b)
@@ -799,9 +797,9 @@ public:
         return (ret);
     }
 
-    string str() const
+    std::string str() const
     {
-        return (string(begin(), end()));
+        return (std::string(begin(), end()));
     }
 
     //
@@ -916,7 +914,7 @@ public:
     }
 
     bool eof() const { return size() == 0; }
-    bool fail() const { return state & (ios::badbit | ios::failbit); }
+    bool fail() const { return state & (std::ios::badbit | std::ios::failbit); }
     bool good() const { return !eof() && (state == 0); }
     void clear(short n) { state = n; } // name conflict with vector clear()
     short exceptions() { return exceptmask; }
@@ -946,7 +944,7 @@ public:
         {
             if (nReadPosNext > vch.size())
             {
-                setstate(ios::failbit, "CDataStream::read() : end of data");
+                setstate(std::ios::failbit, "CDataStream::read() : end of data");
                 memset(pch, 0, nSize);
                 nSize = vch.size() - nReadPos;
             }
@@ -969,7 +967,7 @@ public:
         {
             if (nReadPosNext > vch.size())
             {
-                setstate(ios::failbit, "CDataStream::ignore() : end of data");
+                setstate(std::ios::failbit, "CDataStream::ignore() : end of data");
                 nSize = vch.size() - nReadPos;
             }
             nReadPos = 0;
@@ -1097,7 +1095,7 @@ public:
         nType = nTypeIn;
         nVersion = nVersionIn;
         state = 0;
-        exceptmask = ios::badbit | ios::failbit;
+        exceptmask = std::ios::badbit | std::ios::failbit;
     }
 
     ~CAutoFile()
@@ -1135,7 +1133,7 @@ public:
             throw std::ios_base::failure(psz);
     }
 
-    bool fail() const { return state & (ios::badbit | ios::failbit); }
+    bool fail() const { return state & (std::ios::badbit | std::ios::failbit); }
     bool good() const { return state == 0; }
     void clear(short n = 0) { state = n; }
     short exceptions() { return exceptmask; }
@@ -1159,7 +1157,7 @@ public:
         if (!file)
             throw std::ios_base::failure("CAutoFile::read : file handle is NULL");
         if (fread(pch, 1, nSize, file) != nSize)
-            setstate(ios::failbit, feof(file) ? "CAutoFile::read : end of file" : "CAutoFile::read : fread failed");
+            setstate(std::ios::failbit, feof(file) ? "CAutoFile::read : end of file" : "CAutoFile::read : fread failed");
         return (*this);
     }
 
@@ -1168,7 +1166,7 @@ public:
         if (!file)
             throw std::ios_base::failure("CAutoFile::write : file handle is NULL");
         if (fwrite(pch, 1, nSize, file) != nSize)
-            setstate(ios::failbit, "CAutoFile::write : write failed");
+            setstate(std::ios::failbit, "CAutoFile::write : write failed");
         return (*this);
     }
 

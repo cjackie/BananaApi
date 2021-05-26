@@ -54,3 +54,7 @@ Makefile
 libtool
 *~
 *.o
+
+bin/
+
+config.h
