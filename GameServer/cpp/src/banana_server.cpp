@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdio.h>
+#include <fcntl.h>
 
 #include <banana_message.h>
 #include <serialize.h>
@@ -38,7 +39,35 @@ void SignalCallbackHandler(int signum)
 }
 
 void HandleConnection(int client_sfd) {
+    std::cout
+        << "Handle a connection: " << client_sfd << std::endl;
 
+    // Set the socket to be in blocking mode.
+    int opts = fcntl(client_sfd, F_GETFD);
+    opts = opts & (~O_NONBLOCK);
+    if (fcntl(client_sfd, F_SETFD, opts) == -1) {
+        std::cout << "Setting to blocking mode fails for client: " << client_sfd << std::endl;
+        return ;
+    }
+
+    const int buffer_len = 256;
+    char buffer[buffer_len];
+    while (true) {
+        int r = read(client_sfd, (void *)buffer, buffer_len);
+        if (r == 0) {
+            std::cout << "[sdf = " << client_sfd << "] End of connection" << std::endl;
+            close(client_sfd);
+            break;
+        }
+        if (r == -1) {
+            std::cout << "read error" << std::endl;
+            close(client_sfd);
+            break;
+        }
+
+        std::basic_string<char> str(buffer, 0, r);
+        std::cout << "[sdf = " << client_sfd << "] Received: " << str << std::endl;
+    }
 }
 
 int main()
@@ -67,6 +96,10 @@ int main()
         return -1;
     }
 
+    // Set the socket to be in blocking mode.
+    int opts = fcntl(sfd, F_GETFD);
+    opts = opts & (~O_NONBLOCK);
+    fcntl(sfd, F_SETFD, opts);
 
     std::vector<std::thread> connectionHandlers;
     // Accepting connections
@@ -79,6 +112,7 @@ int main()
             std::cerr << "Failed to accept a client." <<  std::endl;            
             continue;
         }
+        std::cout << "Accepted a connection: " << client_sfd << std::endl;
 
         std::thread handler(HandleConnection, client_sfd);
         connectionHandlers.emplace_back(std::move(handler));
